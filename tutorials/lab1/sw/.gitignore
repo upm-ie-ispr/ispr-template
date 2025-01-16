@@ -1,0 +1,6 @@
+Debug/
+Release/
+_ide/
+build/
+export/
+.analytics
