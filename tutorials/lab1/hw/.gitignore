@@ -1,6 +1,0 @@
-project/
-NA/
-rev/
-
-*.xsa
-!create_project.tcl

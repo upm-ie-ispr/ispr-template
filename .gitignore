@@ -4,7 +4,10 @@ RemoteSystemsTempFiles/
 .analytics/
 logs/
 NA/
+project/
+rev/
 
+*.xsa
 *.lock
 *.bit
 *.jou
@@ -20,3 +23,5 @@ NA/
 *.bin
 
 .DS_Store
+
+!create_project.tcl

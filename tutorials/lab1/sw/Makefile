@@ -1,1 +1,1 @@
-include ../../vivado.mk
+include ../../../vivado.mk

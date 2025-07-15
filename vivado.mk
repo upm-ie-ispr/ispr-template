@@ -83,13 +83,4 @@ $(FPGA_TOP).xsa: $(FPGA_TOP).bit generate_xsa.tcl
 	make -C ../hw xsa
 
 app: ../hw/$(FPGA_TOP).xsa
-	xsct -eval "setws "workspace"; \
-		platform create -name {$(PLATFORM_NAME)} -hw {../hw/$(FPGA_TOP).xsa} -no-boot-bsp; \
-		domain create -name {$(DOMAIN_NAME)} -os standalone -proc {ps7_cortexa9_0}; \
-		app create -name {$(APP_NAME)} -platform {$(PLATFORM_NAME)} -domain {$(DOMAIN_NAME)} -template {Hello World}; \
-		platform active {$(PLATFORM_NAME)}; \
-		platform generate; \
-		app build {$(APP_NAME)}"
-
-app24: ../hw/$(FPGA_TOP).xsa
-	vitis -s ../../vitis_builder.py $(PLATFORM_NAME) ../hw/$(FPGA_TOP).xsa $(OS_NAME) $(CPU_NAME) $(APP_NAME)
+	vitis -s ../../../vitis_builder.py $(PLATFORM_NAME) ../hw/$(FPGA_TOP).xsa $(OS_NAME) $(CPU_NAME) $(APP_NAME)
