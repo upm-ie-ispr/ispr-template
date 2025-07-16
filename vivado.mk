@@ -3,7 +3,7 @@ TUT_DIR?=$(shell dirname $(PWD))
 FPGA_TOP?=$(shell basename $(TUT_DIR))
 TOP_NAME?=system_wrapper
 
-PLATFORM_NAME=system_platform
+PLATFORM_NAME=system_wrapper
 OS_NAME?=standalone
 CPU_NAME?=ps7_cortexa9_0
 DOMAIN_NAME=$(OS_NAME)_$(CPU_NAME)
