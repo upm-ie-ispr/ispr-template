@@ -4,3 +4,4 @@ _ide/
 build/
 export/
 .analytics
+.rigel_lopper/
