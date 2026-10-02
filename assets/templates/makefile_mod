@@ -1,0 +1,64 @@
+# --- COLOR DEFINITIONS ---
+ESC    := $(shell printf '\033')
+# Text styles
+BOLD   := $(ESC)[1m
+DIM    := $(ESC)[2m
+ITALIC := $(ESC)[3m
+# Foreground colors
+RESET  := $(ESC)[0m
+RED    := $(ESC)[31m
+GREEN  := $(ESC)[32m
+YELLOW := $(ESC)[33m
+BLUE   := $(ESC)[34m
+MAGENTA:= $(ESC)[35m
+CYAN   := $(ESC)[36m
+WHITE  := $(ESC)[37m
+# --- STATUS PREFIXES ---
+LOG_INFO    := printf '%s%s\n' "$(BLUE)[INFO]$(RESET) "
+LOG_SUCCESS := printf '%s%s\n' "$(GREEN)[SUCCESS]$(RESET) "
+LOG_WARNING := printf '%s%s\n' "$(YELLOW)[WARN]$(RESET) "
+LOG_ERROR   := printf '%s%s\n' "$(RED)[ERROR]$(RESET) "
+
+# --- PROJECT CONFIGURATION ---
+
+.PHONY: add_hls all app clean
+
+# adds hls
+# usage:
+#	make add_hls
+add_hls:
+	$(MAKE) -C ../../ add_hls TARGET_DIR=$(CURDIR)
+
+# builds everything: hls (if present), then hw, then sw
+# usage:
+#   make all or make app
+app: all
+all:
+	@if [ -d "hls" ]; then \
+		for d in hls/*/; do \
+			if [ -f "$${d}hls_config.cfg" ]; then \
+				$(LOG_INFO) "Running make hls HLS_CHILD_DIR=$$(basename $$d)..."; \
+				$(MAKE) -C hls hls HLS_CHILD_DIR=$$(basename $$d); \
+			fi; \
+		done; \
+	fi
+# app also does the hw if it hasn't been done yet 
+	$(LOG_INFO) "Running make app in sw folder..."
+	@$(MAKE) -C sw app
+
+# cleans everything: hls (if present), then hw, then xsa, then sw. in sw... is a dimmed version (actually make app re-creates from scrath)
+# usage:
+#   make clean
+clean:
+	@if [ -d "hls" ]; then \
+		for d in hls/*/; do \
+			if [ -f "$${d}hls_config.cfg" ]; then \
+				$(LOG_INFO) "Cleaning hls for HLS_CHILD_DIR=$$(basename $$d)..."; \
+				$(MAKE) -C hls hls_clean HLS_CHILD_DIR=$$(basename $$d); \
+			fi; \
+		done; \
+	fi
+	@$(LOG_INFO) "Cleaning hw..."
+	@$(MAKE) -C hw hw_clean
+	@$(LOG_INFO) "Cleaning sw..."
+	@$(MAKE) -C sw app_clean
