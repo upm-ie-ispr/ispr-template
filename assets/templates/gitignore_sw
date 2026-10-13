@@ -1,0 +1,27 @@
+# gitignore for vitis (software)
+
+Debug/
+Release/
+build/
+export/
+.analytics
+.rigel_lopper/
+dfx_runtime.txt
+**/_ide/*
+# sometimes (very few) ps7_init.tcl is not auto selected, hence launch.json would be needed
+!**/_ide/launch.json
+# platform hw name
+system_wrapper/
+compile_commands.json
+vitis-comp.json
+.cache/
+.compile_commands/
+.clangd
+app.yaml
+*Example.cmake
+platform.[ch]
+CMakeLists.txt
+.initialized_sentinel
+# here are files prune to change
+lscript.ld
+UserConfig.cmake

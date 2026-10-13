@@ -1,0 +1,16 @@
+# gitignore for vivado (hardware)
+
+.Xil/
+dfx_runtime.txt
+*.pb
+*.log
+*.jou
+*.dcp
+*.xsa
+*.bit
+*.tcl
+*.dmp
+NA/
+rev/
+!create_project.tcl
+project/

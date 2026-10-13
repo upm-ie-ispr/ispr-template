@@ -1,0 +1,5 @@
+# gitignore for module (lab/exercise)
+
+dfx_runtime.txt
+_ide/
+ip_repo/

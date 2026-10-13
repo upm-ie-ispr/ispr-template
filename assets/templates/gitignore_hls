@@ -1,0 +1,19 @@
+# gitignore for vitis (hls)
+
+_ide/
+.cache/
+.Xil/
+compile_commands.json
+vitis-comp.json
+dfx_runtime.txt
+vitis-run
+.hls.failed
+hls_config.cfg.bak
+*hlscompile_summary
+*hlsrun_*_summary
+*.zip
+**/run_hls.tcl
+**/*/hls
+**/*/report*/
+**/*/log*/
+**/*/*sim/
