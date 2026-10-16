@@ -1,25 +1,35 @@
-import sys
+import argparse
 import vitis
 
-PLATFORM_NAME = sys.argv[1]
-HW_DESIGN = sys.argv[2]
-OS_NAME = sys.argv[3]
-CPU_NAME = sys.argv[4]
-APP_NAME = sys.argv[5]
+parser = argparse.ArgumentParser()
+parser.add_argument('--platform', required=True)
+parser.add_argument('--hw-design', required=True, help='XSA path')
+parser.add_argument('--os', default='standalone')
+parser.add_argument('--cpus', nargs='+', required=True, help='CPU names, one domain and one app per CPU')
+parser.add_argument('--app-prefix', required=True, help='Apps are named <prefix>-cpu<N>')
+parser.add_argument('--workspace', default='workspace')
+parser.add_argument('--template', default='hello_world')
+args = parser.parse_args()
 
-DOMAIN_NAME = f'{OS_NAME}_{CPU_NAME}'
-
-# Create a Vitis client object -
 client = vitis.create_client()
+client.set_workspace(path=args.workspace)
 
-# Set Vitis Workspace
-client.set_workspace(path="workspace")
-
-# Create System and Domain Projects
-platform = client.create_platform_component(name=PLATFORM_NAME, hw_design=HW_DESIGN, no_boot_bsp=True)
-domain = platform.add_domain(cpu=CPU_NAME, os=OS_NAME, name=DOMAIN_NAME)
+# Create platform and domains
+platform = client.create_platform_component(name=args.platform, hw_design=args.hw_design, no_boot_bsp=True)
+domains = []
+for cpu in args.cpus:
+    domain_name = f'{args.os}_{cpu}'
+    platform.add_domain(cpu=cpu, os=args.os, name=domain_name)
+    domains.append(domain_name)
 platform.build()
 
-# Create Application Project
-app = client.create_app_component(name=APP_NAME, platform=f"workspace/{PLATFORM_NAME}/export/{PLATFORM_NAME}/{PLATFORM_NAME}.xpfm", domain=DOMAIN_NAME, template="hello_world")
-app.build()
+# Create a base application for each domain, using the same template
+xpfm = f"{args.workspace}/{args.platform}/export/{args.platform}/{args.platform}.xpfm"
+for i, domain_name in enumerate(domains):
+    app = client.create_app_component(name=f'{args.app_prefix}-cpu{i}', platform=xpfm, domain=domain_name, template=args.template)
+    app.build()
+
+# System project so all apps can run simultaneously
+sys_proj = client.create_sys_project(name=args.app_prefix, platform=xpfm)
+for i in range(len(domains)):
+    sys_proj.add_component(name=f'{args.app_prefix}-cpu{i}')

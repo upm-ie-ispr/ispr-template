@@ -25,13 +25,15 @@ PRJ_DIR  ?= project
 TUT_DIR  ?= $(patsubst %/,%,$(dir $(CURDIR)))
 FPGA_TOP ?= $(notdir $(patsubst %/,%,$(dir $(CURDIR))))
 TOP_NAME ?= system_wrapper
+CREATE_PROJECT_FILE ?= create_project.tcl
+
 
 PLATFORM_NAME  ?= system_wrapper
 WORKSPACE_NAME ?= workspace
 OS_NAME        ?= standalone
-CPU_NAME       ?= ps7_cortexa9_0
-DOMAIN_NAME    := $(OS_NAME)_$(CPU_NAME)
-APP_NAME       := $(FPGA_TOP)
+CPU_NAMES      ?= ps7_cortexa9_0 ps7_cortexa9_1
+# one app per CPU: <top>-cpu<N>
+APP_NAMES      := $(shell i=0; for c in $(CPU_NAMES); do echo $(FPGA_TOP)-cpu$$i; i=$$((i+1)); done)
 
 ifeq ($(OS),Windows_NT)
     VITIS := cmd //c vitis
@@ -47,7 +49,7 @@ endif
 # HW 
 # ---
 define HW_VALIDATE
-	@if [ "$$(basename $(CURDIR))" != "hw" ]; then \
+	if [ "$$(basename $(CURDIR))" != "hw" ]; then \
 		$(LOG_ERROR) "This target must be run from the 'hw' directory (currently in: $(CURDIR))."; \
 		exit 1; \
 	fi
@@ -67,71 +69,69 @@ hw_clean:
 init_prj.tcl:
 	@$(LOG_INFO) "Creating Vivado project initialization script..."
 # re-opens and forces validation since it is required to propagate and calculate the ILA port widths
-	echo "open_project $(PRJ_DIR)/$(FPGA_TOP).xpr" > $@
-	echo "set prj_dir   [get_property DIRECTORY [current_project]]" >> $@
-	echo "set prj_name  [get_property NAME      [current_project]]" >> $@
-	echo "update_compile_order -fileset sources_1" >> $@
-	echo "set bd_file [lindex [get_files *.bd] 0]" >> $@
-	echo "open_bd_design \$$bd_file" >> $@
-	echo "validate_bd_design -force" >> $@
-	echo "save_bd_design" >> $@
+	@echo "open_project $(PRJ_DIR)/$(FPGA_TOP).xpr" > $@
+	@echo "set prj_dir   [get_property DIRECTORY [current_project]]" >> $@
+	@echo "set prj_name  [get_property NAME      [current_project]]" >> $@
+	@echo "update_compile_order -fileset sources_1" >> $@
+	@echo "set bd_file [lindex [get_files *.bd] 0]" >> $@
+	@echo "open_bd_design \$$bd_file" >> $@
+	@echo "validate_bd_design -force" >> $@
+	@echo "save_bd_design" >> $@
 # cleans and generates ALL simulation/synthesis targets natively
-	echo "reset_target all \$$bd_file" >> $@
-	echo "generate_target {synthesis simulation} \$$bd_file" >> $@
-	echo "export_ip_user_files -of_objects \$$bd_file -no_script -sync -force" >> $@
+	@echo "reset_target all \$$bd_file" >> $@
+	@echo "generate_target {synthesis simulation} \$$bd_file" >> $@
+	@echo "export_ip_user_files -of_objects \$$bd_file -no_script -sync -force" >> $@
 # creates and launches OOC IP synthesis runs (skip already-complete)
-	echo "create_ip_run [get_files \$$bd_file]" >> $@
-	echo "foreach run [get_runs -filter {IS_SYNTHESIS == 1 && IS_OUT_OF_CONTEXT == 1 && STATUS != {synth_design Complete!}}] {" >> $@
-	echo "  launch_runs \$$run" >> $@
-	echo "  wait_on_run \$$run" >> $@
-	echo "}" >> $@
+	@echo "create_ip_run [get_files \$$bd_file]" >> $@
+	@echo "foreach run [get_runs -filter {IS_SYNTHESIS == 1 && IS_OUT_OF_CONTEXT == 1 && STATUS != {synth_design Complete!}}] {" >> $@
+	@echo "  launch_runs \$$run" >> $@
+	@echo "  wait_on_run \$$run" >> $@
+	@echo "}" >> $@
 # generates HDL wrapper and set as top
-	echo "make_wrapper -files \$$bd_file -top" >> $@
-	echo "set wrapper_file [lindex [get_files *_wrapper.v] 0]" >> $@
-	echo "add_files -norecurse \$$wrapper_file" >> $@
-	echo "set_property top [file rootname [file tail \$$wrapper_file]] [current_fileset]" >> $@
-	echo "update_compile_order -fileset sources_1" >> $@
+	@echo "make_wrapper -files \$$bd_file -top" >> $@
+	@echo "set wrapper_file [lindex [get_files *_wrapper.v] 0]" >> $@
+	@echo "add_files -norecurse \$$wrapper_file" >> $@
+	@echo "set_property top [file rootname [file tail \$$wrapper_file]] [current_fileset]" >> $@
+	@echo "update_compile_order -fileset sources_1" >> $@
 # simulates only if sim_1 fileset exists and has sources (e.g. a testbench)
-	echo "set sim_filesets [get_filesets -filter {FILESET_TYPE == SimulationSrcs}]" >> $@
-	echo "if {[llength \$$sim_filesets] > 0 && [llength [get_files -of_objects [get_filesets sim_1]]] > 0} {" >> $@
+	@echo "set sim_filesets [get_filesets -filter {FILESET_TYPE == SimulationSrcs}]" >> $@
+	@echo "if {[llength \$$sim_filesets] > 0 && [llength [get_files -of_objects [get_filesets sim_1]]] > 0} {" >> $@
 # checks if DB and wrapper are linked to the simuation scopre
-	echo "  set bd_asset [get_files -quiet system.bd]" >> $@
-	echo "  set wrapper_asset [get_files -quiet system_wrapper.v]" >> $@
+	@echo "  set bd_asset [get_files -quiet system.bd]" >> $@
+	@echo "  set wrapper_asset [get_files -quiet system_wrapper.v]" >> $@
 # if not found inside the active session context, search disk files and link them
-	echo "  if {\$$bd_asset eq \"\"} {" >> $@
-	echo "    set bd_file [lindex [get_files -quiet *.bd] 0]" >> $@
-	echo "    if {\$$bd_file ne \"\" && [llength [get_files -of_objects [get_filesets sim_1] [file tail \$$bd_file]]] == 0} {" >> $@
-	echo "      add_files -fileset sim_1 -norecurse \$$bd_file" >> $@
-	echo "    }" >> $@
-	echo "  }" >> $@
-	echo "  if {\$$wrapper_asset eq \"\"} {" >> $@
-	echo "    set wrapper_file [lindex [get_files -quiet *_wrapper.v] 0]" >> $@
-	echo "    if {\$$wrapper_file ne \"\" && [llength [get_files -of_objects [get_filesets sim_1] [file tail \$$wrapper_file]]] == 0} {" >> $@
-	echo "      add_files -fileset sim_1 -norecurse \$$wrapper_file" >> $@
-	echo "    }" >> $@
-	echo "  }" >> $@
+	@echo "  if {\$$bd_asset eq \"\"} {" >> $@
+	@echo "    set bd_file [lindex [get_files -quiet *.bd] 0]" >> $@
+	@echo "    if {\$$bd_file ne \"\" && [llength [get_files -of_objects [get_filesets sim_1] [file tail \$$bd_file]]] == 0} {" >> $@
+	@echo "      add_files -fileset sim_1 -norecurse \$$bd_file" >> $@
+	@echo "    }" >> $@
+	@echo "  }" >> $@
+	@echo "  if {\$$wrapper_asset eq \"\"} {" >> $@
+	@echo "    set wrapper_file [lindex [get_files -quiet *_wrapper.v] 0]" >> $@
+	@echo "    if {\$$wrapper_file ne \"\" && [llength [get_files -of_objects [get_filesets sim_1] [file tail \$$wrapper_file]]] == 0} {" >> $@
+	@echo "      add_files -fileset sim_1 -norecurse \$$wrapper_file" >> $@
+	@echo "    }" >> $@
+	@echo "  }" >> $@
 # sets simulation top and launches
-	echo "  set_property top     tb             [get_filesets sim_1]" >> $@
-	echo "  set_property top_lib xil_defaultlib [get_filesets sim_1]" >> $@
-	echo "  update_compile_order -fileset sim_1" >> $@
-	echo "  launch_simulation" >> $@
-	echo "  run all" >> $@
-	echo "  close_sim" >> $@
-	echo "} else {" >> $@
-	echo "  puts \"No simulation sources found - skipping simulation\"" >> $@
-	echo "}" >> $@
-	echo "close_project" >> $@
+	@echo "  set_property top     tb             [get_filesets sim_1]" >> $@
+	@echo "  set_property top_lib xil_defaultlib [get_filesets sim_1]" >> $@
+	@echo "  update_compile_order -fileset sim_1" >> $@
+	@echo "  launch_simulation" >> $@
+	@echo "  run all" >> $@
+	@echo "  close_sim" >> $@
+	@echo "} else {" >> $@
+	@echo "  puts \"No simulation sources found - skipping simulation\"" >> $@
+	@echo "}" >> $@
+	@echo "close_project" >> $@
 	@$(LOG_SUCCESS) "Vivado project initialization script created."
-
-$(PRJ_DIR)/.initialized_sentinel: init_prj.tcl | $(PRJ_DIR)/$(FPGA_TOP).xpr
-	vivado -nojournal -nolog -mode batch -source init_prj.tcl
-	touch $@
-
-CREATE_PROJECT_FILE ?= create_project.tcl
 
 $(PRJ_DIR)/$(FPGA_TOP).xpr: $(CREATE_PROJECT_FILE)
 	@$(HW_VALIDATE)
 	vivado -nojournal -nolog -mode batch -source $(CREATE_PROJECT_FILE) -tclargs --project_name $(FPGA_TOP)
+
+$(PRJ_DIR)/.initialized_sentinel: init_prj.tcl | $(PRJ_DIR)/$(FPGA_TOP).xpr
+	vivado -nojournal -nolog -mode batch -source init_prj.tcl
+	touch $@
 
 prj: $(PRJ_DIR)/.initialized_sentinel
 
@@ -240,20 +240,20 @@ check_create_project:
 
 # synthesis run
 run_synth.tcl:
-	echo "open_project $(PRJ_DIR)/$(FPGA_TOP).xpr" > $@
-	echo "reset_run synth_1" >> $@
-	echo "launch_runs -jobs 4 synth_1" >> $@
-	echo "wait_on_run synth_1" >> $@
+	@echo "open_project $(PRJ_DIR)/$(FPGA_TOP).xpr" > $@
+	@echo "reset_run synth_1" >> $@
+	@echo "launch_runs -jobs 4 synth_1" >> $@
+	@echo "wait_on_run synth_1" >> $@
 
 $(PRJ_DIR)/$(FPGA_TOP).runs/synth_1/$(TOP_NAME).dcp: $(PRJ_DIR)/.initialized_sentinel run_synth.tcl
 	vivado -nojournal -nolog -mode batch -source run_synth.tcl
 
 # implementation run
 run_impl.tcl: 
-	echo "open_project $(PRJ_DIR)/$(FPGA_TOP).xpr" > $@
-	echo "reset_run impl_1" >> $@
-	echo "launch_runs -jobs 4 impl_1" >> $@
-	echo "wait_on_run impl_1" >> $@
+	@echo "open_project $(PRJ_DIR)/$(FPGA_TOP).xpr" > $@
+	@echo "reset_run impl_1" >> $@
+	@echo "launch_runs -jobs 4 impl_1" >> $@
+	@echo "wait_on_run impl_1" >> $@
 
 $(PRJ_DIR)/$(FPGA_TOP).runs/impl_1/$(TOP_NAME)_routed.dcp: $(PRJ_DIR)/$(FPGA_TOP).runs/synth_1/$(TOP_NAME).dcp run_impl.tcl
 	vivado -nojournal -nolog -mode batch -source run_impl.tcl
@@ -262,15 +262,15 @@ PROBES_FILE ?= $(PRJ_DIR)/$(FPGA_TOP).runs/impl_1/debug_probes.ltx
 
 # bit
 generate_bit.tcl: 
-	echo "open_project $(PRJ_DIR)/$(FPGA_TOP).xpr" > $@
-	echo "open_run impl_1" >> $@
+	@echo "open_project $(PRJ_DIR)/$(FPGA_TOP).xpr" > $@
+	@echo "open_run impl_1" >> $@
 # write debug netlist only if there is an ila in the design
-	echo "if {[llength [get_debug_cores -quiet]] > 0} {" >> $@
-	echo "  write_debug_probes -force $(PROBES_FILE)" >> $@
-	echo "} else {" >> $@
-	echo "  puts \"No ila found - skipping writing debug hw probes\"" >> $@
-	echo "}" >> $@
-	echo "write_bitstream -force $(PRJ_DIR)/$(FPGA_TOP).runs/impl_1/$(TOP_NAME).bit" >> $@
+	@echo "if {[llength [get_debug_cores -quiet]] > 0} {" >> $@
+	@echo "  write_debug_probes -force $(PROBES_FILE)" >> $@
+	@echo "} else {" >> $@
+	@echo "  puts \"No ila found - skipping writing debug hw probes\"" >> $@
+	@echo "}" >> $@
+	@echo "write_bitstream -force $(PRJ_DIR)/$(FPGA_TOP).runs/impl_1/$(TOP_NAME).bit" >> $@
 
 $(PRJ_DIR)/$(FPGA_TOP).runs/impl_1/$(TOP_NAME).bit: $(PRJ_DIR)/$(FPGA_TOP).runs/impl_1/$(TOP_NAME)_routed.dcp generate_bit.tcl
 	vivado -nojournal -nolog -mode batch -source generate_bit.tcl
@@ -288,8 +288,8 @@ bit: $(FPGA_TOP).bit
 
 # xsa
 generate_xsa.tcl: 
-	echo "open_project $(PRJ_DIR)/$(FPGA_TOP).xpr" > $@
-	echo "write_hw_platform -fixed -include_bit -force -file $(FPGA_TOP).xsa" >> $@
+	@echo "open_project $(PRJ_DIR)/$(FPGA_TOP).xpr" > $@
+	@echo "write_hw_platform -fixed -include_bit -force -file $(FPGA_TOP).xsa" >> $@
 
 $(FPGA_TOP).xsa: $(FPGA_TOP).bit generate_xsa.tcl
 	vivado -nojournal -nolog -mode batch -source generate_xsa.tcl
@@ -298,32 +298,32 @@ xsa: $(FPGA_TOP).xsa
 
 # open with hw probes
 add_probes.tcl:
-	echo "if {[catch {" > $@
-	echo "  open_project $(PRJ_DIR)/$(FPGA_TOP).xpr" >> $@
-	echo "  open_hw_manager" >> $@
-	echo "  connect_hw_server -url localhost:3121" >> $@
-	echo "  open_hw_target" >> $@
-	echo "  refresh_hw_device [current_hw_device]" >> $@
+	@echo "if {[catch {" > $@
+	@echo "  open_project $(PRJ_DIR)/$(FPGA_TOP).xpr" >> $@
+	@echo "  open_hw_manager" >> $@
+	@echo "  connect_hw_server -url localhost:3121" >> $@
+	@echo "  open_hw_target" >> $@
+	@echo "  refresh_hw_device [current_hw_device]" >> $@
 # ILA should be on the design so if not, no use of hw probes...
-	echo "  set ilas [get_hw_ilas -of_objects [current_hw_device]]" >> $@
-	echo "  if {[llength \$$ilas] == 0} {" >> $@
-	echo "    error \"ERROR: Not ila found, is it programmed?\"" >> $@
-	echo "	}" >> $@
-	echo "  set hw_probes_file \"$(PROBES_FILE)"" >> $@
-	echo "  if {\$$hw_probes_file eq \"\"} {" >> $@
-	echo "    error \"ERROR: Not debug hw probes found\"" >> $@
-	echo "	}" >> $@
-	echo "  set_property PROBES.FILE \$$hw_probes_file [current_hw_device]" >> $@
-	echo "  refresh_hw_device [current_hw_device]" >> $@
-	echo "} err]} {" >> $@
-	echo "  puts stderr \"\$$err\"" >> $@
-	echo "  puts \"INFO: Closing in 10s\"" >> $@
-	echo "  after 10000 {" >> $@
-	echo "    catch {close_project}" >> $@
-	echo "    catch {exit 1}" >> $@
-	echo "    catch {quit}" >> $@
-	echo "  }" >> $@
-	echo "}" >> $@
+	@echo "  set ilas [get_hw_ilas -of_objects [current_hw_device]]" >> $@
+	@echo "  if {[llength \$$ilas] == 0} {" >> $@
+	@echo "    error \"ERROR: Not ila found, is it programmed?\"" >> $@
+	@echo "	}" >> $@
+	@echo "  set hw_probes_file \"$(PROBES_FILE)"" >> $@
+	@echo "  if {\$$hw_probes_file eq \"\"} {" >> $@
+	@echo "    error \"ERROR: Not debug hw probes found\"" >> $@
+	@echo "	}" >> $@
+	@echo "  set_property PROBES.FILE \$$hw_probes_file [current_hw_device]" >> $@
+	@echo "  refresh_hw_device [current_hw_device]" >> $@
+	@echo "} err]} {" >> $@
+	@echo "  puts stderr \"\$$err\"" >> $@
+	@echo "  puts \"INFO: Closing in 10s\"" >> $@
+	@echo "  after 10000 {" >> $@
+	@echo "    catch {close_project}" >> $@
+	@echo "    catch {exit 1}" >> $@
+	@echo "    catch {quit}" >> $@
+	@echo "  }" >> $@
+	@echo "}" >> $@
 
 open_with_probes: add_probes.tcl
 	@$(HW_VALIDATE)
@@ -336,7 +336,7 @@ open_with_probes: add_probes.tcl
 
 define SW_VALIDATE
 	if [ "$$(basename $(CURDIR))" != "sw" ]; then \
-		echo "ERROR: This target must be run from the 'sw' directory (currently in: $(CURDIR))"; \
+		$(LOG_ERROR) "This target must be run from the 'sw' directory (currently in: $(CURDIR))"; \
 		exit 1; \
 	fi
 endef
@@ -347,47 +347,63 @@ endef
 
 app: ../hw/$(FPGA_TOP).xsa
 	@$(SW_VALIDATE)
-	@mkdir -p .tmp_src_backup .tmp_ide_backup
-	@HAS_HELLOWORLD=0; \
-	if [ -d "$(WORKSPACE_NAME)/$(FPGA_TOP)/src" ]; then \
-		echo "Doing backup"; \
-		cp -r $(WORKSPACE_NAME)/$(FPGA_TOP)/src/* .tmp_src_backup/ 2>/dev/null || true; \
-		if [ -f ".tmp_src_backup/helloworld.c" ]; then \
-			HAS_HELLOWORLD=1; \
+	@rm -rf .tmp_backup
+	@mkdir -p .tmp_backup
+	@for app in $(APP_NAMES); do \
+		if [ -d "$(WORKSPACE_NAME)/$$app/src" ]; then \
+			$(LOG_WARNING) "[$$app] Vitis source files found. Doing backup..."; \
+			mkdir -p ".tmp_backup/$$app/src"; \
+			cp -r "$(WORKSPACE_NAME)/$$app/src/." ".tmp_backup/$$app/src/" 2>/dev/null || true; \
 		fi; \
-	fi; \
-	if [ -f "$(WORKSPACE_NAME)/$(FPGA_TOP)/_ide/launch.json" ]; then \
-		mkdir -p .tmp_ide_backup; \
-		cp $(WORKSPACE_NAME)/$(FPGA_TOP)/_ide/launch.json .tmp_ide_backup/launch.json 2>/dev/null || true; \
-	fi; \
-	rm -rf $(WORKSPACE_NAME); \
-	$(VITIS) -s ../../../vitis_builder.py $(PLATFORM_NAME) ../hw/$(FPGA_TOP).xsa $(OS_NAME) $(CPU_NAME) $(APP_NAME); \
-	mkdir -p $(WORKSPACE_NAME)/$(FPGA_TOP)/src/; \
-	if [ -d ".tmp_src_backup" ] && [ "$$(ls -A .tmp_src_backup)" ]; then \
-		echo "Restoring backup"; \
-		cp -r .tmp_src_backup/* $(WORKSPACE_NAME)/$(FPGA_TOP)/src/ 2>/dev/null || true; \
-		if [ $$HAS_HELLOWORLD -eq 0 ]; then \
-			rm -f $(WORKSPACE_NAME)/$(FPGA_TOP)/src/helloworld.c; \
+		if [ -f "$(WORKSPACE_NAME)/$$app/_ide/launch.json" ]; then \
+			$(LOG_WARNING) "[$$app] Vitis IDE files found. Doing backup..."; \
+			mkdir -p ".tmp_backup/$$app/_ide"; \
+			cp "$(WORKSPACE_NAME)/$$app/_ide/launch.json" ".tmp_backup/$$app/_ide/launch.json" 2>/dev/null || true; \
 		fi; \
-	fi; \
-	if [ -f ".tmp_ide_backup/launch.json" ]; then \
-		mkdir -p $(WORKSPACE_NAME)/$(FPGA_TOP)/_ide; \
-		cp .tmp_ide_backup/launch.json $(WORKSPACE_NAME)/$(FPGA_TOP)/_ide/launch.json 2>/dev/null || true; \
-	fi; \
-	rm -rf .tmp_src_backup .tmp_ide_backup
-	@echo "Cleaning helloworld build"
-	$(MAKE) app_clean
-	touch .initialized_sentinel
+	done
+	@if [ -f "$(WORKSPACE_NAME)/$(FPGA_TOP)/_ide/launch.json" ]; then \
+		$(LOG_WARNING) "[$(FPGA_TOP)] System project launch config found. Doing backup..."; \
+		mkdir -p ".tmp_backup/$(FPGA_TOP)/_ide"; \
+		cp "$(WORKSPACE_NAME)/$(FPGA_TOP)/_ide/launch.json" ".tmp_backup/$(FPGA_TOP)/_ide/launch.json" 2>/dev/null || true; \
+	fi
+	@rm -rf $(WORKSPACE_NAME)
+	@$(LOG_INFO) "Creating new Vitis workspace..."
+	$(VITIS) -s ../../../vitis_builder.py --platform $(PLATFORM_NAME) --hw-design ../hw/$(FPGA_TOP).xsa --os $(OS_NAME) --cpus $(CPU_NAMES) --app-prefix $(FPGA_TOP) --workspace $(WORKSPACE_NAME)
+	@for app in $(APP_NAMES); do \
+		mkdir -p "$(WORKSPACE_NAME)/$$app/src"; \
+		if [ -d ".tmp_backup/$$app/src" ] && [ "$$(ls -A ".tmp_backup/$$app/src")" ]; then \
+			$(LOG_INFO) "[$$app] Restoring source files from backup..."; \
+			cp -r ".tmp_backup/$$app/src/." "$(WORKSPACE_NAME)/$$app/src/" 2>/dev/null || true; \
+			if [ ! -f ".tmp_backup/$$app/src/helloworld.c" ]; then \
+				rm -f "$(WORKSPACE_NAME)/$$app/src/helloworld.c"; \
+			fi; \
+		fi; \
+		if [ -f ".tmp_backup/$$app/_ide/launch.json" ]; then \
+			$(LOG_INFO) "[$$app] Restoring IDE files from backup..."; \
+			mkdir -p "$(WORKSPACE_NAME)/$$app/_ide"; \
+			cp ".tmp_backup/$$app/_ide/launch.json" "$(WORKSPACE_NAME)/$$app/_ide/launch.json" 2>/dev/null || true; \
+		fi; \
+	done
+	@if [ -f ".tmp_backup/$(FPGA_TOP)/_ide/launch.json" ]; then \
+		$(LOG_INFO) "[$(FPGA_TOP)] Restoring system project launch config from backup..."; \
+		mkdir -p "$(WORKSPACE_NAME)/$(FPGA_TOP)/_ide"; \
+		cp ".tmp_backup/$(FPGA_TOP)/_ide/launch.json" "$(WORKSPACE_NAME)/$(FPGA_TOP)/_ide/launch.json" 2>/dev/null || true; \
+	fi
+	@rm -rf .tmp_backup
+#	@$(LOG_INFO) "Cleaning helloworld build..."
+#	$(MAKE) app_clean
+	@touch .initialized_sentinel
+	@$(LOG_SUCCESS) "App initialized."
 
 # cannot delete more or ide cannot open the workspace	
 app_clean:
 	@$(SW_VALIDATE)
-	rm -rf $(WORKSPACE_NAME)/$(FPGA_TOP)/build
+	rm -rf $(WORKSPACE_NAME)/$(FPGA_TOP)-*/build
 
 # checks for changes in src (a file is considered changed if it is newer than the sentinel)
 SW_SENTINEL    ?= .initialized_sentinel
 SW_GITIGNORE   ?= .gitignore
-SRC_DIR        ?= $(WORKSPACE_NAME)/$(APP_NAME)/src
+SRC_DIRS       ?= $(wildcard $(WORKSPACE_NAME)/$(FPGA_TOP)-*/src)
 EXCLUDED_FILES ?= app.yaml compile_commands.json CMakeLists.txt
 
 check_changes:
@@ -398,8 +414,8 @@ check_changes:
 	fi
 	@any_changes=0; \
 	gitignore_modified=0; \
-	if [ -d "$(SRC_DIR)" ]; then \
-		for f in $(SRC_DIR)/* $(SRC_DIR)/**/*; do \
+	if [ -n "$(SRC_DIRS)" ]; then \
+		for f in $(addsuffix /*,$(SRC_DIRS)) $(addsuffix /**/*,$(SRC_DIRS)); do \
 			skip_file=0; \
 			for exc in $(EXCLUDED_FILES); do \
 				basename_file=$$(basename "$$f"); \
