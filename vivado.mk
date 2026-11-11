@@ -32,6 +32,7 @@ PLATFORM_NAME  ?= system_wrapper
 WORKSPACE_NAME ?= workspace
 OS_NAME        ?= standalone
 CPU_NAMES      ?= ps7_cortexa9_0 ps7_cortexa9_1
+MAILBOX        ?= 0
 # one app per CPU: <top>-cpu<N>
 APP_NAMES      := $(shell i=0; for c in $(CPU_NAMES); do echo $(FPGA_TOP)-cpu$$i; i=$$((i+1)); done)
 
@@ -347,33 +348,82 @@ endef
 
 app: ../hw/$(FPGA_TOP).xsa
 	@$(SW_VALIDATE)
-	@rm -rf .tmp_backup
-	@mkdir -p .tmp_backup
-	@for app in $(APP_NAMES); do \
+	@case "$(MAILBOX)" in 0|1) ;; *) $(LOG_ERROR) "MAILBOX must be 0 or 1."; exit 1;; esac
+	@if [ "$(words $(CPU_NAMES))" -eq 0 ]; then \
+		$(LOG_ERROR) "At least one CPU is required."; \
+		exit 1; \
+	fi
+	@if [ "$(words $(CPU_NAMES))" -gt 2 ]; then \
+		$(LOG_ERROR) "At most two CPUs are supported by the mailbox and linker templates."; \
+		exit 1; \
+	fi
+	@if [ "$(MAILBOX)" -eq 1 ] && [ "$(words $(CPU_NAMES))" -ne 2 ]; then \
+		$(LOG_ERROR) "Mailbox support requires two CPUs."; \
+		exit 1; \
+	fi
+	@if [ "$(words $(CPU_NAMES))" -eq 1 ] && [ -d "$(WORKSPACE_NAME)/$(FPGA_TOP)-mailbox" ]; then \
+		$(LOG_ERROR) "Single-core generation would remove the existing mailbox. Back it up and remove it from the workspace first."; \
+		exit 1; \
+	fi
+	@if { [ -e "$(WORKSPACE_NAME)/$(FPGA_TOP)-mailbox" ] || [ -L "$(WORKSPACE_NAME)/$(FPGA_TOP)-mailbox" ]; } && \
+		[ ! -d "$(WORKSPACE_NAME)/$(FPGA_TOP)-mailbox" ]; then \
+		$(LOG_ERROR) "The existing mailbox path is not a directory; preserve it before regenerating the workspace."; \
+		exit 1; \
+	fi
+	@if [ -e .tmp_backup ] || [ -L .tmp_backup ]; then \
+		$(LOG_ERROR) "An existing .tmp_backup may contain files from a previous run. Recover or move it before running make app."; \
+		exit 1; \
+	fi
+	@mkdir .tmp_backup
+	@set -e; for app in $(APP_NAMES); do \
 		if [ -d "$(WORKSPACE_NAME)/$$app/src" ]; then \
 			$(LOG_WARNING) "[$$app] Vitis source files found. Doing backup..."; \
 			mkdir -p ".tmp_backup/$$app/src"; \
-			cp -r "$(WORKSPACE_NAME)/$$app/src/." ".tmp_backup/$$app/src/" 2>/dev/null || true; \
+			cp -r "$(WORKSPACE_NAME)/$$app/src/." ".tmp_backup/$$app/src/"; \
 		fi; \
 		if [ -f "$(WORKSPACE_NAME)/$$app/_ide/launch.json" ]; then \
 			$(LOG_WARNING) "[$$app] Vitis IDE files found. Doing backup..."; \
 			mkdir -p ".tmp_backup/$$app/_ide"; \
-			cp "$(WORKSPACE_NAME)/$$app/_ide/launch.json" ".tmp_backup/$$app/_ide/launch.json" 2>/dev/null || true; \
+			cp "$(WORKSPACE_NAME)/$$app/_ide/launch.json" ".tmp_backup/$$app/_ide/launch.json"; \
 		fi; \
 	done
-	@if [ -f "$(WORKSPACE_NAME)/$(FPGA_TOP)/_ide/launch.json" ]; then \
+	@set -e; if [ -d "$(WORKSPACE_NAME)/$(FPGA_TOP)-mailbox" ]; then \
+		$(LOG_WARNING) "[$(FPGA_TOP)-mailbox] Backing up user files and settings; mailbox.c and mailbox.h will be refreshed from templates."; \
+		mkdir -p ".tmp_backup/$(FPGA_TOP)-mailbox"; \
+		for source in "$(WORKSPACE_NAME)/$(FPGA_TOP)-mailbox/"* "$(WORKSPACE_NAME)/$(FPGA_TOP)-mailbox/".[!.]* "$(WORKSPACE_NAME)/$(FPGA_TOP)-mailbox/"..?*; do \
+			if [ ! -e "$$source" ] && [ ! -L "$$source" ]; then continue; fi; \
+			case "$${source##*/}" in build|Debug|Release|export|.cache|compile_commands.json) continue;; esac; \
+			cp -R "$$source" ".tmp_backup/$(FPGA_TOP)-mailbox/"; \
+		done; \
+	fi
+	@set -e; if [ -f "$(WORKSPACE_NAME)/$(FPGA_TOP)/_ide/launch.json" ]; then \
 		$(LOG_WARNING) "[$(FPGA_TOP)] System project launch config found. Doing backup..."; \
 		mkdir -p ".tmp_backup/$(FPGA_TOP)/_ide"; \
-		cp "$(WORKSPACE_NAME)/$(FPGA_TOP)/_ide/launch.json" ".tmp_backup/$(FPGA_TOP)/_ide/launch.json" 2>/dev/null || true; \
+		cp "$(WORKSPACE_NAME)/$(FPGA_TOP)/_ide/launch.json" ".tmp_backup/$(FPGA_TOP)/_ide/launch.json"; \
 	fi
-	@rm -rf $(WORKSPACE_NAME)
+	@rm -rf "$(WORKSPACE_NAME)"
 	@$(LOG_INFO) "Creating new Vitis workspace..."
-	$(VITIS) -s ../../../vitis_builder.py --platform $(PLATFORM_NAME) --hw-design ../hw/$(FPGA_TOP).xsa --os $(OS_NAME) --cpus $(CPU_NAMES) --app-prefix $(FPGA_TOP) --workspace $(WORKSPACE_NAME)
-	@for app in $(APP_NAMES); do \
+	@set -e; \
+	if [ -d ".tmp_backup/$(FPGA_TOP)-mailbox" ]; then \
+		set -- --mailbox-backup ".tmp_backup/$(FPGA_TOP)-mailbox"; \
+	else \
+		set --; \
+	fi; \
+	if [ "$(MAILBOX)" -eq 1 ]; then set -- "$$@" --mailbox; fi; \
+	$(VITIS) -s ../../../vitis_builder.py --platform "$(PLATFORM_NAME)" --hw-design "../hw/$(FPGA_TOP).xsa" --os "$(OS_NAME)" --cpus $(CPU_NAMES) --app-prefix "$(FPGA_TOP)" --workspace "$(WORKSPACE_NAME)" "$$@"
+	@set -e; for app in $(APP_NAMES); do \
 		mkdir -p "$(WORKSPACE_NAME)/$$app/src"; \
 		if [ -d ".tmp_backup/$$app/src" ] && [ "$$(ls -A ".tmp_backup/$$app/src")" ]; then \
 			$(LOG_INFO) "[$$app] Restoring source files from backup..."; \
-			cp -r ".tmp_backup/$$app/src/." "$(WORKSPACE_NAME)/$$app/src/" 2>/dev/null || true; \
+			if [ "$(words $(CPU_NAMES))" -gt 1 ]; then \
+				for source in ".tmp_backup/$$app/src/"* ".tmp_backup/$$app/src/".[!.]* ".tmp_backup/$$app/src/"..?*; do \
+					if [ ! -e "$$source" ] && [ ! -L "$$source" ]; then continue; fi; \
+					case "$${source##*/}" in UserConfig.cmake|lscript.ld) continue;; esac; \
+					cp -r "$$source" "$(WORKSPACE_NAME)/$$app/src/"; \
+				done; \
+			else \
+				cp -r ".tmp_backup/$$app/src/." "$(WORKSPACE_NAME)/$$app/src/"; \
+			fi; \
 			if [ ! -f ".tmp_backup/$$app/src/helloworld.c" ]; then \
 				rm -f "$(WORKSPACE_NAME)/$$app/src/helloworld.c"; \
 			fi; \
@@ -381,13 +431,13 @@ app: ../hw/$(FPGA_TOP).xsa
 		if [ -f ".tmp_backup/$$app/_ide/launch.json" ]; then \
 			$(LOG_INFO) "[$$app] Restoring IDE files from backup..."; \
 			mkdir -p "$(WORKSPACE_NAME)/$$app/_ide"; \
-			cp ".tmp_backup/$$app/_ide/launch.json" "$(WORKSPACE_NAME)/$$app/_ide/launch.json" 2>/dev/null || true; \
+			cp ".tmp_backup/$$app/_ide/launch.json" "$(WORKSPACE_NAME)/$$app/_ide/launch.json"; \
 		fi; \
 	done
-	@if [ -f ".tmp_backup/$(FPGA_TOP)/_ide/launch.json" ]; then \
+	@set -e; if [ -f ".tmp_backup/$(FPGA_TOP)/_ide/launch.json" ]; then \
 		$(LOG_INFO) "[$(FPGA_TOP)] Restoring system project launch config from backup..."; \
 		mkdir -p "$(WORKSPACE_NAME)/$(FPGA_TOP)/_ide"; \
-		cp ".tmp_backup/$(FPGA_TOP)/_ide/launch.json" "$(WORKSPACE_NAME)/$(FPGA_TOP)/_ide/launch.json" 2>/dev/null || true; \
+		cp ".tmp_backup/$(FPGA_TOP)/_ide/launch.json" "$(WORKSPACE_NAME)/$(FPGA_TOP)/_ide/launch.json"; \
 	fi
 	@rm -rf .tmp_backup
 #	@$(LOG_INFO) "Cleaning helloworld build..."

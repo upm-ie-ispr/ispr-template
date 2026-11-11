@@ -3,6 +3,7 @@
 Debug/
 Release/
 build/
+bin/
 export/
 .analytics
 .rigel_lopper/
@@ -22,6 +23,3 @@ app.yaml
 platform.[ch]
 CMakeLists.txt
 .initialized_sentinel
-# here are files prune to change
-lscript.ld
-UserConfig.cmake

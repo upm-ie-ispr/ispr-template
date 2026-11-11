@@ -1,0 +1,31 @@
+--- UserConfig.cmake
++++ UserConfig.cmake
+@@ -3,2 +3,16 @@
+ cmake_minimum_required(VERSION 3.16)
++
++get_filename_component(_vitis_app_dir "${CMAKE_SOURCE_DIR}" DIRECTORY)
++get_filename_component(_vitis_app_name "${_vitis_app_dir}" NAME)
++if(NOT _vitis_app_name MATCHES "^.+-cpu[0-9]+$")
++    message(FATAL_ERROR "Mailbox configuration expects a <prefix>-cpu<N> application directory, got '${_vitis_app_name}'")
++endif()
++string(REGEX REPLACE "-cpu[0-9]+$" "-mailbox" _vitis_mailbox_name "${_vitis_app_name}")
++
++# Track the archive because the generated -l option does not.
++add_library(_vitis_mailbox_link_dependency INTERFACE)
++set_property(TARGET _vitis_mailbox_link_dependency PROPERTY INTERFACE_LINK_DEPENDS
++    "${CMAKE_SOURCE_DIR}/../../${_vitis_mailbox_name}/build/lib${_vitis_mailbox_name}.a")
++link_libraries(_vitis_mailbox_link_dependency)
++
+ enable_language(C ASM CXX)
+@@ -29,2 +43,3 @@
+ set(USER_INCLUDE_DIRECTORIES
++"${CMAKE_SOURCE_DIR}/../../${_vitis_mailbox_name}"
+ )
+@@ -114,2 +129,3 @@
+ set(USER_LINK_LIBRARIES
++"${_vitis_mailbox_name}"
+ )
+@@ -120,2 +136,3 @@
+ set(USER_LINK_DIRECTORIES
++"${CMAKE_SOURCE_DIR}/../../${_vitis_mailbox_name}/build"
+ )
