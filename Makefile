@@ -75,7 +75,7 @@ new:
 		if [ -d "$(SOURCE_DIR)/hw/src" ]; then cp -r $(SOURCE_DIR)/hw/src $(TARGET_DIR)/hw/src; fi; \
 		if [ -f "$(SOURCE_DIR)/hw/create_project.tcl" ]; then \
 			cp $(SOURCE_DIR)/hw/create_project.tcl $(TARGET_DIR)/hw/create_project.tcl; \
-			sed -i 's/$(notdir $(SOURCE_DIR))/$(notdir $(TARGET_DIR))/g' $(TARGET_DIR)/hw/create_project.tcl; \
+			sed -i 's/$(notdir $(patsubst %/,%,$(SOURCE_DIR)))/$(notdir $(patsubst %/,%,$(TARGET_DIR)))/g' $(TARGET_DIR)/hw/create_project.tcl; \
 		fi; \
 		cp $(SOURCE_DIR)/sw/Makefile $(TARGET_DIR)/sw/Makefile; \
 		if [ -f "$(SOURCE_DIR)/sw/.gitignore" ]; then cp $(SOURCE_DIR)/sw/.gitignore $(TARGET_DIR)/sw/.gitignore; fi; \
@@ -90,16 +90,16 @@ new:
 add_hls:
 	@$(LOG_INFO) "Adding HLS folder to project..."
 	@if [ -z "$(TARGET_DIR)" ]; then \
-		@$(LOG_ERROR) "TARGET_DIR is not set."; \
+		$(LOG_ERROR) "TARGET_DIR is not set."; \
 		printf "    Usage: make add_hls TARGET_DIR=path/to/project"; \
 		exit 1; \
 	fi
 	@if [ ! -d "$(TARGET_DIR)" ]; then \
-		@$(LOG_ERROR) "TARGET_DIR '$(TARGET_DIR)' does not exist. Run 'make new ...' first."; \
+		$(LOG_ERROR) "TARGET_DIR '$(TARGET_DIR)' does not exist. Run 'make new ...' first."; \
 		exit 1; \
 	fi
 	@if [ -d "$(TARGET_DIR)/hls" ]; then \
-		@$(LOG_ERROR) "Directory $(TARGET_DIR)/hls already exists."; \
+		$(LOG_ERROR) "Directory $(TARGET_DIR)/hls already exists."; \
 		exit 1; \
 	fi
 	$(CHECK_PROJECT_DIR)
