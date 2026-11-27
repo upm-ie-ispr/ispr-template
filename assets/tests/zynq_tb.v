@@ -24,7 +24,9 @@ module tb;
     wire temp_rstn; 
    
     reg [31:0] read_data;
+    wire [3:0] btns;
     wire [3:0] leds;
+    reg [3:0] switches;
     reg resp;
     
     initial 
@@ -87,8 +89,8 @@ system_wrapper zynq_sys
     .FIXED_IO_ps_clk(temp_clk),
     .FIXED_IO_ps_porb(temp_rstn ),
     .FIXED_IO_ps_srstb(temp_rstn),
-    .btn_tri_io(),
-    .leds_4bits_tri_o(leds),
+    .btns_4bits_tri_io(btns),
+    .leds_4bits_tri_io(leds),
     .sws_4bits_tri_i(switches)
     );
 
